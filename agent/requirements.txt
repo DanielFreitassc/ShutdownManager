@@ -1,0 +1,7 @@
+# Pacote principal que seu script importa
+requests==2.31.0
+
+# Dependências que o 'requests' precisa para funcionar
+charset-normalizer==3.3.2
+idna==3.7
+urllib3==2.2.1
