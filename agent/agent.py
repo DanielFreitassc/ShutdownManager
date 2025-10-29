@@ -19,7 +19,7 @@ else:
 MANAGER_AUTH_URL = "http://127.0.0.1:8080/api/manager/register" 
 MANAGER_API_URL = "http://127.0.0.1:8080/api/manager/heartbeat" 
 KEY_FILE = 'my_agent_key.txt'
-HEARTBEAT_INTERVAL = 10
+HEARTBEAT_INTERVAL = 240
 # ------------------------------
 
 AGENT_KEY = None
@@ -127,7 +127,7 @@ if __name__ == '__main__':
             print("[AGENTE] Tentando obter a chave novamente...")
             current_key = get_or_register_key()
             if not current_key:
-                print("[AGENTE] Falha ao obter a chave, tentando em 10s...")
+                print("[AGENTE] Falha ao obter a chave, tentando em 4 minutos...")
                 
         print(f"[AGENTE] Próximo heartbeat em {HEARTBEAT_INTERVAL} segundos...")
         time.sleep(HEARTBEAT_INTERVAL)
