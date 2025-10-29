@@ -29,7 +29,10 @@ MANAGER_BASE_URL = f"http://{MANAGER_IP}:23456/api/manager"
 MANAGER_AUTH_URL = f"{MANAGER_BASE_URL}/register" 
 MANAGER_API_URL = f"{MANAGER_BASE_URL}/heartbeat" 
 KEY_FILE = 'my_agent_key.txt'
-HEARTBEAT_INTERVAL = 240
+
+# Intervalo de 4 minutos (240s) para o heartbeat
+HEARTBEAT_INTERVAL = 240 
+# ------------------------------------
 
 AGENT_KEY = None
 
@@ -72,7 +75,6 @@ def send_heartbeat(key):
         return True 
 
     headers = {"Authorization": f"Bearer {key}"}
-    
     payload = {"hostname": AGENT_HOSTNAME, "status": "online", "group": AGENT_GROUP}
     
     try:
@@ -90,8 +92,9 @@ def send_heartbeat(key):
             
             if command == 'shutdown':
                 print("[AGENTE] Comando 'shutdown' recebido do Manager!")
-                print("[AGENTE] INICIANDO DESLIGAMENTO REAL DA MÁQUINA EM 1 SEGUNDO...")
-                os.system('shutdown /s /t 1')
+                print("[AGENTE] INICIANDO DESLIGAMENTO (SUAVE) EM 15 MINUTOS (900 SEGUNDOS)...")
+                # Comando com 900s (15 min) de aviso e mensagem
+                os.system('shutdown /s /t 900 /c "Desligamento remoto iniciado pelo Manager. Salve seu trabalho."')
                 return False 
             
             elif command == 'ok':
@@ -106,6 +109,7 @@ def send_heartbeat(key):
         print(f"[AGENTE] FALHA no heartbeat. Não foi possível conectar ao Manager API em {MANAGER_IP}.")
         return True 
 
+# --- LÓGICA DO LOOP PRINCIPAL REVERTIDA PARA A VERSÃO SIMPLES ---
 if __name__ == '__main__':
     print(f"--- Iniciando Agente na máquina: {AGENT_HOSTNAME} ---")
     print(f"--- Grupo de Agente: {AGENT_GROUP} ---")
@@ -116,8 +120,15 @@ if __name__ == '__main__':
         keep_running = send_heartbeat(current_key)
         
         if not keep_running:
+            # 'shutdown' foi recebido
             break
-            
+        
+        # Se a chave foi invalidada (401), send_heartbeat apagou o arquivo.
+        # Precisamos apagar a chave da memória para forçar o registro.
+        if os.path.exists(KEY_FILE) == False:
+             print("[AGENTE] Chave local apagada. Forçando novo registro.")
+             current_key = None
+        
         if not current_key:
             print("[AGENTE] Tentando obter a chave novamente...")
             current_key = get_or_register_key()
