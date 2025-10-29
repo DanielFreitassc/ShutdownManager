@@ -1,11 +1,21 @@
 package br.edu.satc.backend.services;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import br.edu.satc.backend.dtos.AgentRegisterRequestDto;
+import br.edu.satc.backend.dtos.AgentResponseDto;
 import br.edu.satc.backend.dtos.AgenteRegisterResponseDto;
+import br.edu.satc.backend.dtos.CommandAllHostsRequestDto;
+import br.edu.satc.backend.dtos.CommandGroupHostsRequestDto;
+import br.edu.satc.backend.dtos.CommandHostUniqueRequestDto;
+import br.edu.satc.backend.dtos.HeartbeatRequestDto;
+import br.edu.satc.backend.dtos.HeartbeatResponseDto;
+import br.edu.satc.backend.dtos.MessageResponseDto;
 import br.edu.satc.backend.mappers.AgentMapper;
 import br.edu.satc.backend.models.AgentEntity;
 import br.edu.satc.backend.repositories.AgentRepository;
@@ -40,35 +50,115 @@ public class AgentService {
 
         agentRepository.save(newAgent);
 
-        return agentMapper.toDto(newAgent);
+        return agentMapper.toRegisterDto(newAgent);
     }
 
-    public Optional<AgentEntity> validateAgentByKey(String agentKey, String status, String group) {
+    public HeartbeatResponseDto processHeartbeat(String agentKey, HeartbeatRequestDto dto) {
+        AgentEntity agent = validateAgentByKey(agentKey, dto.status(), dto.group());
+    
+        String command = getAndClearCommand(agent.getHostname());
+        
+        if (command != null) {
+            return new HeartbeatResponseDto(command); 
+        } else {
+            return new HeartbeatResponseDto("ok"); 
+        }
+    }
+
+    private AgentEntity validateAgentByKey(String agentKey, String status, String group) {
         Optional<AgentEntity> agentOpt = agentRepository.findByAgentKey(agentKey);
         
-        if (agentOpt.isPresent()) {
-            AgentEntity agent = agentOpt.get();
-            agent.setStatus(status);
-            agent.setLastHeartbeat(LocalDateTime.now());
-            if (group != null && !group.equals(agent.getAgentGroup())) {
-                agent.setAgentGroup(group); 
-                System.out.println("[SERVICE] Agente '" + agent.getHostname() + "' atualizou seu grupo para '" + group + "' via heartbeat.");
-            }
-            agentRepository.save(agent);
-            return Optional.of(agent);
+        if (agentOpt.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Chave inválida");
+        }
+
+        AgentEntity agent = agentOpt.get();
+        agent.setStatus(status);
+        agent.setLastHeartbeat(LocalDateTime.now());
+        
+        if (group != null && !group.equals(agent.getAgentGroup())) {
+            agent.setAgentGroup(group); 
         }
         
-        return Optional.empty();
+        agentRepository.save(agent);
+        return agent; 
     }
 
+    public MessageResponseDto queueCommandForHost(CommandHostUniqueRequestDto dto) {
+        String hostname = dto.hostname();
+        String command = dto.command();
+
+        Optional<AgentEntity> agentOpt = agentRepository.findByHostname(hostname);
+        if (agentOpt.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Agente '" + hostname + "' não encontrado no banco de dados.");
+        }
+
+        this.queueCommand(hostname, command); 
+
+        return new MessageResponseDto("comando_enfileirado");
+    }
+
+    public MessageResponseDto queueCommandForGroup(CommandGroupHostsRequestDto dto) {
+        String groupName = dto.group();
+        String command = dto.command();
+
+        List<AgentEntity> agentsInGroup = agentRepository.findAllByAgentGroup(groupName);
+        if (agentsInGroup.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Nenhum agente encontrado no grupo '" + groupName + "'.");
+        }
+
+        for (AgentEntity agent : agentsInGroup) {
+            this.queueCommand(agent.getHostname(), command);
+        }
+        
+        return new MessageResponseDto("Shutdown solicitado ao grupo: " + groupName);
+    }
+
+    public MessageResponseDto queueCommandForAll(CommandAllHostsRequestDto dto) {
+        String command = dto.command();
+
+        List<AgentEntity> allAgents = agentRepository.findAll();
+        if (allAgents.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Nenhum agente registrado no sistema.");
+        }
+
+        for (AgentEntity agent : allAgents) {
+            this.queueCommand(agent.getHostname(), command);
+        }
+        
+        return new MessageResponseDto("Shutdown solicitado para todos os hosts");
+    }
     
+    public Page<AgentResponseDto> findAgents(Pageable pageable) {
+       return agentRepository.findAll(pageable).map(agentMapper::toDto);
+    }
+
     public Optional<AgentEntity> findAgentByHostname(String hostname) {
         return agentRepository.findByHostname(hostname);
    
     }
 
+    @Scheduled(fixedRate = 60000)
+    public void checkOfflineAgents() {
+        LocalDateTime cutoffTime = LocalDateTime.now().minusMinutes(5);
+
+        List<AgentEntity> staleAgents = agentRepository.findByStatusNotAndLastHeartbeatBefore("offline", cutoffTime);
+
+        if (staleAgents.isEmpty()) {
+            return; 
+        }
+
+        System.out.println("[SCHEDULER] Encontrados " + staleAgents.size() + " agentes inativos. Marcando como 'offline'.");
+
+        for (AgentEntity agent : staleAgents) {
+            System.out.println("[SCHEDULER] - Host: " + agent.getHostname() + ", Último Heartbeat: " + agent.getLastHeartbeat());
+            agent.setStatus("offline");
+        }
+
+        agentRepository.saveAll(staleAgents);
+    }
+
     public void queueCommand(String hostname, String command) {
-        System.out.println("[SERVICE] Admin enfileirou comando '" + command + "' para o agente '" + hostname + "'");
         commandQueue.put(hostname, command);
     }
 

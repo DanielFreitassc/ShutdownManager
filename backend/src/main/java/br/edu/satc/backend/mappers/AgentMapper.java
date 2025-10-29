@@ -4,11 +4,17 @@ import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
 import br.edu.satc.backend.dtos.AgentRegisterRequestDto;
+import br.edu.satc.backend.dtos.AgentResponseDto;
 import br.edu.satc.backend.dtos.AgenteRegisterResponseDto;
+import br.edu.satc.backend.dtos.HeartbeatRequestDto;
 import br.edu.satc.backend.models.AgentEntity;
 
 @Mapper(componentModel = "spring")
 public interface AgentMapper {
+    @Mapping(target = "group", source = "agentGroup")
+    @Mapping(target = "key", source = "agentKey")
+    AgentResponseDto toDto(AgentEntity agentEntity);
+
     @Mapping(target = "agentGroup",source = "group")
     @Mapping(target = "agentKey", ignore = true)
     @Mapping(target = "id", ignore = true)
@@ -18,5 +24,13 @@ public interface AgentMapper {
 
     @Mapping(target = "key",source = "agentKey")
     @Mapping(target = "id", expression = "java(String.format(\"%03d\", agentEntity.getId()))")
-    AgenteRegisterResponseDto toDto(AgentEntity agentEntity);
+    AgenteRegisterResponseDto toRegisterDto(AgentEntity agentEntity);
+
+    @Mapping(target = "agentGroup",source = "group")
+    @Mapping(target = "hostname",source = "group")
+    @Mapping(target = "agentKey", ignore = true)
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "status", ignore = true)
+    @Mapping(target = "lastHeartbeat", ignore = true)
+    AgentEntity toHeartbeat(HeartbeatRequestDto heartbeatRequestDto);
 }
