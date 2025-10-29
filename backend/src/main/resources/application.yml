@@ -19,4 +19,4 @@ user:
         password: Senha12345
 
 server:
-  port: 8080
+  port: 23456

@@ -3,36 +3,40 @@ import time
 import os
 import sys
 import socket
+import argparse
 
-# --- Configuração do Agente ---
+# --- Parser de Argumentos ---
+parser = argparse.ArgumentParser(description="Agente de Monitoramento")
+parser.add_argument(
+    'group', 
+    nargs='?', 
+    default='default', 
+    help='O grupo do agente (ex: "L-10-54")'
+)
+parser.add_argument(
+    '--ip', 
+    default='127.0.0.1', 
+    help='O endereço IP do Manager (padrão: 127.0.0.1)'
+)
+args = parser.parse_args()
+# ------------------------------
+
 AGENT_HOSTNAME = socket.gethostname() 
+AGENT_GROUP = args.group
+MANAGER_IP = args.ip
 
-# *** NOVO: Lê o grupo da linha de comando ***
-# Ex: python agent.py "Grupo-Servidores-Web"
-if len(sys.argv) > 1:
-    AGENT_GROUP = sys.argv[1] # Pega o primeiro argumento
-else:
-    AGENT_GROUP = "default" # Grupo padrão se nada for passado
-# *****************************************
-
-# APONTA PARA O SPRING BOOT
-MANAGER_AUTH_URL = "http://127.0.0.1:8080/api/manager/register" 
-MANAGER_API_URL = "http://127.0.0.1:8080/api/manager/heartbeat" 
+MANAGER_BASE_URL = f"http://{MANAGER_IP}:23456/api/manager"
+MANAGER_AUTH_URL = f"{MANAGER_BASE_URL}/register" 
+MANAGER_API_URL = f"{MANAGER_BASE_URL}/heartbeat" 
 KEY_FILE = 'my_agent_key.txt'
 HEARTBEAT_INTERVAL = 240
-# ------------------------------
 
 AGENT_KEY = None
 
 def register_agent():
-    """
-    Entra em contato com o 'Cartório' (Auth) para se registrar.
-    """
-    print(f"[AGENTE] Chave não encontrada. Tentando registrar '{AGENT_HOSTNAME}' (Grupo: {AGENT_GROUP}) no Manager Auth...")
+    print(f"[AGENTE] Chave não encontrada. Tentando registrar '{AGENT_HOSTNAME}' (Grupo: {AGENT_GROUP}) no Manager em {MANAGER_IP}...")
     try:
-        # *** ALTERADO: Envia o hostname E o grupo ***
         payload = {"hostname": AGENT_HOSTNAME, "group": AGENT_GROUP}
-        # *****************************************
         response = requests.post(MANAGER_AUTH_URL, json=payload)
         
         if response.status_code == 201:
@@ -50,14 +54,10 @@ def register_agent():
             return None
             
     except requests.exceptions.ConnectionError:
-        print("[AGENTE] FALHA no registro. Não foi possível conectar ao Manager Auth.")
+        print(f"[AGENTE] FALHA no registro. Não foi possível conectar ao Manager Auth em {MANAGER_IP}.")
         return None
 
 def get_or_register_key():
-    """
-    Verifica se a chave já existe localmente.
-    Se não, chama a função de registro.
-    """
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, 'r') as f:
             key = f.read().strip()
@@ -67,19 +67,13 @@ def get_or_register_key():
         return register_agent()
 
 def send_heartbeat(key):
-    """
-    Envia um 'ping' para o Manager API e escuta a resposta.
-    """
     if not key:
         print("[AGENTE] Não é possível enviar heartbeat: Chave ausente.")
         return True 
 
     headers = {"Authorization": f"Bearer {key}"}
     
-    # *** ALTERADO: Envia o grupo também no heartbeat ***
-    # (Isso permite que o agente mude de grupo dinamicamente se o admin alterar)
     payload = {"hostname": AGENT_HOSTNAME, "status": "online", "group": AGENT_GROUP}
-    # **************************************************
     
     try:
         response = requests.post(MANAGER_API_URL, json=payload, headers=headers)
@@ -96,7 +90,8 @@ def send_heartbeat(key):
             
             if command == 'shutdown':
                 print("[AGENTE] Comando 'shutdown' recebido do Manager!")
-                print("[AGENTE] Simulando desligamento...")
+                print("[AGENTE] INICIANDO DESLIGAMENTO REAL DA MÁQUINA EM 1 SEGUNDO...")
+                os.system('shutdown /s /t 1')
                 return False 
             
             elif command == 'ok':
@@ -108,13 +103,13 @@ def send_heartbeat(key):
             return True 
             
     except requests.exceptions.ConnectionError:
-        print("[AGENTE] FALHA no heartbeat. Não foi possível conectar ao Manager API.")
+        print(f"[AGENTE] FALHA no heartbeat. Não foi possível conectar ao Manager API em {MANAGER_IP}.")
         return True 
 
-# --- Loop Principal do Agente ---
 if __name__ == '__main__':
     print(f"--- Iniciando Agente na máquina: {AGENT_HOSTNAME} ---")
     print(f"--- Grupo de Agente: {AGENT_GROUP} ---")
+    print(f"--- Conectando ao Manager em: {MANAGER_IP}:23456 ---")
     current_key = get_or_register_key()
     
     while True:
@@ -127,7 +122,7 @@ if __name__ == '__main__':
             print("[AGENTE] Tentando obter a chave novamente...")
             current_key = get_or_register_key()
             if not current_key:
-                print("[AGENTE] Falha ao obter a chave, tentando em 4 minutos...")
+                print(f"[AGENTE] Falha ao obter a chave, tentando em {HEARTBEAT_INTERVAL} segundos...")
                 
         print(f"[AGENTE] Próximo heartbeat em {HEARTBEAT_INTERVAL} segundos...")
         time.sleep(HEARTBEAT_INTERVAL)
