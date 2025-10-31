@@ -45,7 +45,7 @@ public class SecurityConfigurations {
                 .requestMatchers(HttpMethod.POST,"/api/manager/admin/queue_command").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST,"/api/manager/admin/queue_command_group").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST,"/api/manager/admin/queue_command_all").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.GET,"/api/manager/agents").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.GET,"/api/manager/admin/agents").hasRole("ADMIN")
 
                 .requestMatchers(HttpMethod.POST,"/users").permitAll()
                 .requestMatchers(HttpMethod.POST,"/users/{id}/activate").hasAnyRole("ADMIN")
@@ -59,6 +59,7 @@ public class SecurityConfigurations {
                 
 
                 .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
+                .requestMatchers(HttpMethod.GET, "/auth/me").hasAnyRole("ADMIN")
                 
                 .requestMatchers("/error").anonymous()
                 .anyRequest().denyAll()

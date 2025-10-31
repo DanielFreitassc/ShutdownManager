@@ -47,7 +47,7 @@ public class UserEntity implements UserDetails {
     @CreationTimestamp
     @DateTimeFormat(pattern = "dd/MM/yyyy")
     @JsonFormat(pattern = "dd/MM/yyyy")
-    private LocalDate createdAt;
+    private LocalDateTime createdAt;
 
     @Length(min = 6, message = "A senha deve ter pelo menos 6 caracteres.")
     @Pattern(

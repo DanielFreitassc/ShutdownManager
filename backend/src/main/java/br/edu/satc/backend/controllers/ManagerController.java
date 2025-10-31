@@ -65,7 +65,7 @@ public class ManagerController {
         return agentService.queueCommandForAll(commandHostUniqueRequestDto);
     }
 
-    @GetMapping("/agents")
+    @GetMapping("/admin/agents")
     public Page<AgentResponseDto> findAgentsHandle(Pageable pageable) {
         return agentService.findAgents(pageable);
     }
