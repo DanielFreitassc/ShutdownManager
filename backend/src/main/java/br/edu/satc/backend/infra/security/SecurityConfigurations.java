@@ -48,6 +48,8 @@ public class SecurityConfigurations {
                 .requestMatchers(HttpMethod.GET,"/api/manager/admin/agents").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST,"/api/manager/admin/schedule_command").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET,"/api/manager/admin/schedule_command").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.GET,"/api/manager/admin/agents/{id}").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.DELETE,"/api/manager/admin/agents/{id}").hasRole("ADMIN")
 
                 .requestMatchers(HttpMethod.POST,"/users").permitAll()
                 .requestMatchers(HttpMethod.POST,"/users/{id}/activate").hasAnyRole("ADMIN")

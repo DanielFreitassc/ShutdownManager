@@ -133,9 +133,14 @@ public class AgentService {
        return agentRepository.findAll(pageable).map(agentMapper::toDto);
     }
 
-    public Optional<AgentEntity> findAgentByHostname(String hostname) {
-        return agentRepository.findByHostname(hostname);
+    public AgentResponseDto findAgentByHost(Long id) {
+        return agentMapper.toDto(findByHostOrThrow(id));
    
+    }
+
+    public MessageResponseDto deleteByHostId(Long id) {
+        agentRepository.delete(findByHostOrThrow(id));
+        return new MessageResponseDto("Agente removido com sucesso");
     }
 
     @Scheduled(fixedRate = 60000)
@@ -156,6 +161,15 @@ public class AgentService {
         }
 
         agentRepository.saveAll(staleAgents);
+    }
+
+
+    private AgentEntity findByHostOrThrow(Long id) {
+        Optional<AgentEntity> agent = agentRepository.findById(id);
+        if(agent.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Agente não encontrado");
+        }
+        return agent.get();
     }
 
     public void queueCommand(String hostname, String command) {

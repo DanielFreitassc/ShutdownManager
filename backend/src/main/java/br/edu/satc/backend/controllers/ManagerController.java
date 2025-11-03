@@ -87,6 +87,16 @@ public class ManagerController {
     @GetMapping("/admin/schedule_command")
     public List<ScheduledCommandResponseDto> getSchedules() {
         return scheduledCommandService.getSchedules();
+    }   
+
+    @DeleteMapping("/admin/agents/{id}")
+    public MessageResponseDto deleteByHostId(@PathVariable Long id) {
+        return agentService.deleteByHostId(id);
+    }
+
+    @GetMapping("/admin/agents/{id}")
+    public AgentResponseDto findAgentByHost(@PathVariable Long id) {
+        return agentService.findAgentByHost(id);
     }
 
 }
