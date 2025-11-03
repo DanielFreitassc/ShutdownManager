@@ -33,6 +33,8 @@ export default function AgentsPage() {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
   const [selectedGroup, setSelectedGroup] = useState("")
   const [shutdownCommand, setShutdownCommand] = useState("shutdown")
+  const [scheduledTime, setScheduledTime] = useState("") 
+  const [scheduleChecked, setScheduleChecked] = useState(false) // checkbox agendar
   const [executing, setExecuting] = useState(false)
 
   const pageSize = 10
@@ -93,29 +95,37 @@ export default function AgentsPage() {
     setShutdownType(type)
     setSelectedAgent(agent || null)
     setShutdownDialogOpen(true)
+    setScheduledTime("")
+    setScheduleChecked(false)
   }
 
   const executeShutdown = async () => {
+    if ((shutdownType === "group" && !selectedGroup) || !shutdownCommand) return
+
     setExecuting(true)
     try {
-      if (shutdownType === "single" && selectedAgent) {
-        await api.post("/api/manager/admin/queue_command", {
-          hostname: selectedAgent.hostname,
-          command: shutdownCommand,
-        })
-        toast.success(`Comando de ${shutdownCommand} enviado para ${selectedAgent.hostname}`)
-      } else if (shutdownType === "group" && selectedGroup) {
-        await api.post("/api/manager/admin/queue_command_group", {
-          group: selectedGroup,
-          command: shutdownCommand,
-        })
-        toast.success(`Comando de ${shutdownCommand} enviado para o grupo ${selectedGroup}`)
-      } else if (shutdownType === "all") {
-        await api.post("/api/manager/admin/queue_command_all", {
-          command: shutdownCommand,
-        })
-        toast.success(`Comando de ${shutdownCommand} enviado para todas as máquinas`)
+      if (scheduleChecked && scheduledTime) {
+        // usar o endpoint novo de agendamento
+        const payload: any = {
+          scheduledFor: scheduledTime,
+          allHostsCommand: shutdownType === "all" ? { command: shutdownCommand } : null,
+          groupCommand: shutdownType === "group" ? { group: selectedGroup, command: shutdownCommand } : null,
+          hostCommand: shutdownType === "single" && selectedAgent ? { hostname: selectedAgent.hostname, command: shutdownCommand } : null
+        }
+        await api.post("/api/manager/admin/schedule_command", payload)
+        toast.success(`Comando de ${shutdownCommand} agendado com sucesso!`)
+      } else {
+        // enviar imediatamente usando os endpoints antigos
+        if (shutdownType === "single" && selectedAgent) {
+          await api.post("/api/manager/admin/queue_command", { hostname: selectedAgent.hostname, command: shutdownCommand })
+        } else if (shutdownType === "group" && selectedGroup) {
+          await api.post("/api/manager/admin/queue_command_group", { group: selectedGroup, command: shutdownCommand })
+        } else if (shutdownType === "all") {
+          await api.post("/api/manager/admin/queue_command_all", { command: shutdownCommand })
+        }
+        toast.success(`Comando de ${shutdownCommand} enviado com sucesso!`)
       }
+
       setShutdownDialogOpen(false)
       fetchAgents(page)
     } catch (error: any) {
@@ -128,6 +138,7 @@ export default function AgentsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header com botões */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Gerenciamento de Máquinas</h1>
@@ -215,7 +226,7 @@ export default function AgentsPage() {
                     </Table>
                   </div>
 
-                  {/* Pagination */}
+                  {/* Paginação */}
                   {totalPages > 1 && (
                     <div className="flex items-center justify-between mt-4">
                       <p className="text-sm text-muted-foreground">
@@ -250,7 +261,7 @@ export default function AgentsPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Shutdown Dialog */}
+      {/* Dialog de Desligamento */}
       <Dialog open={shutdownDialogOpen} onOpenChange={setShutdownDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -299,6 +310,31 @@ export default function AgentsPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Checkbox Agendar */}
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="scheduleCheck"
+                checked={scheduleChecked}
+                onChange={(e) => setScheduleChecked(e.target.checked)}
+              />
+              <Label htmlFor="scheduleCheck">Agendar comando</Label>
+            </div>
+
+            {/* Campo de data/hora, visível apenas se checkbox marcada */}
+            {scheduleChecked && (
+              <div className="space-y-2">
+                <Label htmlFor="scheduledTime">Agendar Para</Label>
+                <input
+                  type="datetime-local"
+                  id="scheduledTime"
+                  className="w-full border rounded-md p-2"
+                  value={scheduledTime}
+                  onChange={(e) => setScheduledTime(e.target.value)}
+                />
+              </div>
+            )}
           </div>
 
           <DialogFooter>

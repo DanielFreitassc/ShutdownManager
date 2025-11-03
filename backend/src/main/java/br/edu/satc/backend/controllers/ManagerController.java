@@ -10,10 +10,14 @@ import br.edu.satc.backend.dtos.CommandHostUniqueRequestDto;
 import br.edu.satc.backend.dtos.HeartbeatRequestDto;
 import br.edu.satc.backend.dtos.HeartbeatResponseDto;
 import br.edu.satc.backend.dtos.MessageResponseDto;
-import br.edu.satc.backend.models.AgentEntity;
+import br.edu.satc.backend.dtos.ScheduleCommandDto;
+import br.edu.satc.backend.dtos.ScheduledCommandResponseDto;
 import br.edu.satc.backend.services.AgentService;
+import br.edu.satc.backend.services.ScheduledCommandService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+
+import java.util.List;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +31,7 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/manager") 
 public class ManagerController {
     private final AgentService agentService;
+    private final ScheduledCommandService scheduledCommandService;
 
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping("/register")
@@ -69,4 +74,19 @@ public class ManagerController {
     public Page<AgentResponseDto> findAgentsHandle(Pageable pageable) {
         return agentService.findAgents(pageable);
     }
+
+    @PostMapping("/admin/schedule_command")
+    public ResponseEntity<MessageResponseDto> scheduleCommand(
+            @RequestBody @Valid ScheduleCommandDto dto) {
+        scheduledCommandService.scheduleCommand(dto);
+        return ResponseEntity.ok(new MessageResponseDto(
+            "Comando agendado para " + dto.scheduledFor()
+        ));
+    }
+
+    @GetMapping("/admin/schedule_command")
+    public List<ScheduledCommandResponseDto> getSchedules() {
+        return scheduledCommandService.getSchedules();
+    }
+
 }

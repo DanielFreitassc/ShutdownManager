@@ -4,20 +4,12 @@ import Cookies from "js-cookie"
 const BASE_URL = "http://localhost:23456"
 
 // --- INTERFACES ---
-
-// Interface de paginação que estava faltando
 export interface PaginatedResponse<T> {
   content: T[]
   totalPages: number
   totalElements: number
   number: number
   size: number
-  // Adicione outras propriedades de paginação se necessário
-}
-
-export type ResponsePadrao<T> = {
-  content?: T
-  message?: string
 }
 
 export interface User {
@@ -41,25 +33,39 @@ export interface RegisterPayload {
 }
 
 export interface AuthResponse {
-  token: string
-  user?: User // O usuário é opcional no login, mas idealmente é retornado
+  token?: string
+  user?: User
   message?: string
 }
 
-export interface ApiError {
-  message: string
-}
-
 // --- CONFIGURAÇÃO DO AXIOS ---
-
 export const api = axios.create({
   baseURL: BASE_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
+  headers: { "Content-Type": "application/json" },
 })
 
-// Interceptor para adicionar o token
+// --- SCHEDULE COMMAND API ---
+export interface ScheduleCommandPayload {
+  scheduledFor: string // ISO string, ex: "2025-11-03T15:41:00"
+  allHostsCommand?: { command: string } | null
+  groupCommand?: { group: string; command: string } | null
+  hostCommand?: { hostname: string; command: string } | null
+}
+
+/**
+ * Agenda um comando para host(s) específicos, grupo ou todos.
+ */
+export async function scheduleCommand(payload: ScheduleCommandPayload) {
+  try {
+    const { data } = await api.post("/api/manager/admin/schedule_command", payload)
+    return data
+  } catch (error) {
+    throw handleError(error, "Erro ao agendar comando")
+  }
+}
+
+
+// Adiciona o token automaticamente às requisições
 api.interceptors.request.use(
   (config) => {
     const token = Cookies.get("auth_token")
@@ -68,17 +74,10 @@ api.interceptors.request.use(
     }
     return config
   },
-  (error) => {
-    return Promise.reject(error)
-  },
+  (error) => Promise.reject(error),
 )
 
-// --- FUNÇÕES DA API ---
-
-/**
- * Trata erros do Axios e retorna uma mensagem de erro padronizada.
- * CORRIGIDO: Agora propaga o erro com a mensagem da API.
- */
+// --- FUNÇÃO DE ERRO PADRONIZADA ---
 function handleError(error: unknown, defaultMessage: string): Error {
   if (axios.isAxiosError(error) && error.response?.data?.message) {
     return new Error(error.response.data.message)
@@ -86,7 +85,7 @@ function handleError(error: unknown, defaultMessage: string): Error {
   return new Error(defaultMessage)
 }
 
-// Auth API
+// --- AUTH API ---
 export async function login(payload: LoginPayload): Promise<AuthResponse> {
   try {
     const { data } = await api.post<AuthResponse>("/auth/login", payload)
@@ -97,6 +96,9 @@ export async function login(payload: LoginPayload): Promise<AuthResponse> {
 }
 
 export async function register(payload: RegisterPayload): Promise<AuthResponse> {
+  // Limpa qualquer token antigo antes de registrar
+  Cookies.remove("auth_token")
+
   try {
     const { data } = await api.post<AuthResponse>("/users", payload)
     return data
@@ -105,13 +107,11 @@ export async function register(payload: RegisterPayload): Promise<AuthResponse> 
   }
 }
 
-/**
- * NOVO: Função para buscar dados do usuário logado (validar o token)
- * Presume que existe um endpoint /auth/me ou /users/me
- */
 export async function getMe(): Promise<User> {
+  const token = Cookies.get("auth_token")
+  if (!token) throw new Error("Usuário não autenticado")
+
   try {
-    // Ajuste o endpoint se necessário (ex: /users/me)
     const { data } = await api.get<User>("/auth/me")
     return data
   } catch (error) {
@@ -119,11 +119,8 @@ export async function getMe(): Promise<User> {
   }
 }
 
-// Users API
-export async function getPendingUsers(
-  page = 0,
-  size = 20,
-): Promise<PaginatedResponse<User>> {
+// --- USERS API ---
+export async function getPendingUsers(page = 0, size = 20) {
   try {
     const { data } = await api.get<PaginatedResponse<User>>("/users/pending", {
       params: { page, size },
@@ -134,10 +131,7 @@ export async function getPendingUsers(
   }
 }
 
-export async function getActiveUsers(
-  page = 0,
-  size = 20,
-): Promise<PaginatedResponse<User>> {
+export async function getActiveUsers(page = 0, size = 20) {
   try {
     const { data } = await api.get<PaginatedResponse<User>>("/users", {
       params: { page, size },
@@ -148,7 +142,7 @@ export async function getActiveUsers(
   }
 }
 
-export async function activateUser(id: string): Promise<void> {
+export async function activateUser(id: string) {
   try {
     await api.post(`/users/${id}/activate`)
   } catch (error) {
@@ -156,10 +150,7 @@ export async function activateUser(id: string): Promise<void> {
   }
 }
 
-export async function updateUser(
-  id: string,
-  payload: Partial<RegisterPayload>,
-): Promise<User> {
+export async function updateUser(id: string, payload: Partial<RegisterPayload>) {
   try {
     const { data } = await api.patch<User>(`/users/${id}`, payload)
     return data
@@ -168,7 +159,7 @@ export async function updateUser(
   }
 }
 
-export async function deleteUser(id: string): Promise<void> {
+export async function deleteUser(id: string) {
   try {
     await api.delete(`/users/${id}`)
   } catch (error) {

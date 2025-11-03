@@ -46,6 +46,8 @@ public class SecurityConfigurations {
                 .requestMatchers(HttpMethod.POST,"/api/manager/admin/queue_command_group").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST,"/api/manager/admin/queue_command_all").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET,"/api/manager/admin/agents").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.POST,"/api/manager/admin/schedule_command").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.GET,"/api/manager/admin/schedule_command").hasRole("ADMIN")
 
                 .requestMatchers(HttpMethod.POST,"/users").permitAll()
                 .requestMatchers(HttpMethod.POST,"/users/{id}/activate").hasAnyRole("ADMIN")
