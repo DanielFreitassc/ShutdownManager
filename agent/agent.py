@@ -4,7 +4,8 @@ import os
 import socket
 import winreg
 from win10toast import ToastNotifier
-import sys  # Importado para obter o caminho do executável
+import sys
+import uuid  # ✅ para gerar chave única
 
 # --- Configurações fixas ---
 MANAGER_IP = "10.85.0.48"
@@ -12,205 +13,164 @@ MANAGER_BASE_URL = f"http://{MANAGER_IP}:23456/api/manager"
 MANAGER_AUTH_URL = f"{MANAGER_BASE_URL}/register"
 MANAGER_API_URL = f"{MANAGER_BASE_URL}/heartbeat"
 
-KEY_FILE = 'my_agent_key.txt'
-HEARTBEAT_INTERVAL = 10  # Intervalo em segundos
-SHUTDOWN_DELAY = 10     # 10 minutos (em segundos)
+HEARTBEAT_INTERVAL = 10
+SHUTDOWN_DELAY = 1 * 60  # 10 minutos
+REG_PATH = r"SOFTWARE\AgentMonitor"
+REG_VALUE_NAME = "AgentKey"
 # ----------------------------
 
 AGENT_HOSTNAME = socket.gethostname()
+AGENT_GROUP = AGENT_HOSTNAME.split("--")[0] if "--" in AGENT_HOSTNAME else AGENT_HOSTNAME
 
-# Extrai grupo automaticamente do hostname
-# Ex: L-10-54--01 -> grupo = L-10-54
-if "--" in AGENT_HOSTNAME:
-    AGENT_GROUP = AGENT_HOSTNAME.split("--")[0]
-else:
-    AGENT_GROUP = AGENT_HOSTNAME
-
-# Inicializa notificações
 notifier = ToastNotifier()
 
+
 def exibir_mensagem_tela(msg, titulo="Aviso do Sistema"):
-    """Exibe uma notificação que não bloqueia o código."""
     try:
-        # threaded=True garante que o script não pause esperando a notificação
         notifier.show_toast(titulo, msg, duration=10, threaded=True)
     except Exception as e:
         print(f"[AGENTE] Falha ao exibir notificação: {e}")
 
-def adicionar_inicio_windows():
-    """Adiciona o agente para iniciar com o Windows automaticamente."""
+
+def salvar_chave_global(key: str):
+    """Salva a chave no Registro do Windows (HKEY_LOCAL_MACHINE)"""
     try:
-        # Pega o caminho absoluto deste script (ex: C:\agente\agent.py)
-        script_path = os.path.abspath(__file__)
-        
-        # Pega o caminho do executável do Python (ex: C:\Python310\python.exe)
-        python_exe_path = sys.executable
-
-        # --- CORREÇÃO PRINCIPAL ---
-        # Troca 'python.exe' por 'pythonw.exe' para rodar em modo "windowless" (sem console)
-        # Se 'pythonw.exe' não for encontrado, usa o 'python.exe' como fallback
-        pythonw_exe_path = python_exe_path.replace("python.exe", "pythonw.exe")
-        if not os.path.exists(pythonw_exe_path):
-            pythonw_exe_path = python_exe_path # Fallback
-
-        # Define o comando final que será escrito no Registro
-        # Se for um script .py, usa o 'pythonw.exe' para executá-lo
-        if script_path.endswith(".py"):
-            # Formato: "C:\Python310\pythonw.exe" "C:\agente\agent.py"
-            valor_registro = f'"{pythonw_exe_path}" "{script_path}"'
-        else:
-            # Se for um .exe compilado, apenas usa o caminho do .exe
-            valor_registro = f'"{script_path}"'
-        # --- FIM DA CORREÇÃO ---
-
-        # Chave do Registro para apps que iniciam com o usuário
-        key = winreg.HKEY_CURRENT_USER
-        subkey = r"Software\Microsoft\Windows\CurrentVersion\Run"
-        app_name = "AgentMonitor" # Nome da entrada no Registro
-
-        # Abre a chave do Registro e define o valor
-        with winreg.OpenKey(key, subkey, 0, winreg.KEY_SET_VALUE) as reg_key:
-            winreg.SetValueEx(reg_key, app_name, 0, winreg.REG_SZ, valor_registro)
-
-        print(f"[AGENTE] Adicionado para iniciar com o Windows: {valor_registro}")
-    
+        with winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, REG_PATH) as reg_key:
+            winreg.SetValueEx(reg_key, REG_VALUE_NAME, 0, winreg.REG_SZ, key)
+        print(f"[AGENTE] Chave salva no registro global (HKLM\\{REG_PATH})")
     except PermissionError:
-        print("[AGENTE] FALHA AO ADICIONAR AO INICIALIZAR: Permissão negada.")
-        print("[AGENTE] Por favor, execute este script como Administrador pelo menos uma vez.")
+        print("[AGENTE] ERRO: Permissão negada ao gravar no registro global.")
+        print("         Execute este script como administrador pelo menos uma vez.")
     except Exception as e:
-        print(f"[AGENTE] Falha desconhecida ao adicionar ao inicializar: {e}")
+        print(f"[AGENTE] Falha ao salvar chave no registro global: {e}")
 
-def register_agent():
-    print(f"[AGENTE] Chave não encontrada. Tentando registrar '{AGENT_HOSTNAME}' (Grupo: {AGENT_GROUP}) no Manager em {MANAGER_IP}...")
+
+def carregar_chave_global() -> str | None:
+    """Lê a chave global do Registro"""
     try:
-        payload = {"hostname": AGENT_HOSTNAME, "group": AGENT_GROUP}
-        # Timeout adicionado para evitar que o script trave indefinidamente
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, REG_PATH) as reg_key:
+            key, _ = winreg.QueryValueEx(reg_key, REG_VALUE_NAME)
+            print(f"[AGENTE] Chave carregada do registro global: {key[:8]}...")
+            return key
+    except FileNotFoundError:
+        return None
+    except PermissionError:
+        print("[AGENTE] ERRO: Sem permissão para ler o registro global.")
+        return None
+    except Exception as e:
+        print(f"[AGENTE] Erro ao ler chave do registro global: {e}")
+        return None
+
+
+def gerar_chave_local() -> str:
+    """Gera uma nova chave única localmente"""
+    key = str(uuid.uuid4())
+    print(f"[AGENTE] Nova chave gerada localmente: {key[:8]}...")
+    salvar_chave_global(key)
+    return key
+
+
+def register_agent(key: str):
+    """Envia os dados + chave gerada para o Manager"""
+    print(f"[AGENTE] Tentando registrar '{AGENT_HOSTNAME}' (Grupo: {AGENT_GROUP}) no Manager em {MANAGER_IP}...")
+    try:
+        payload = {
+            "hostname": AGENT_HOSTNAME,
+            "group": AGENT_GROUP,
+            "agentKey": key  # ✅ Envia chave gerada localmente
+        }
         response = requests.post(MANAGER_AUTH_URL, json=payload, timeout=10)
 
-        if response.status_code == 201:
+        if response.status_code in (200, 201):
             data = response.json()
-            key = data['key']
-            agent_id = data['id']
-
-            with open(KEY_FILE, 'w') as f:
-                f.write(key)
-
-            print(f"[AGENTE] Registro com SUCESSO. ID: {agent_id}, Chave: {key[:8]}...")
-            return key
+            print(f"[AGENTE] Registro aprovado pelo Manager. ID: {data.get('id')}, status: {data.get('status', 'ok')}")
+            return True
+        elif response.status_code == 403:
+            print("[AGENTE] Registro rejeitado pelo Manager (aguardando aprovação).")
+            return False
         else:
-            print(f"[AGENTE] FALHA no registro (Manager respondeu {response.status_code}): {response.text}")
-            return None
+            print(f"[AGENTE] FALHA no registro ({response.status_code}): {response.text}")
+            return False
 
     except requests.exceptions.ConnectionError:
         print(f"[AGENTE] FALHA no registro. Não foi possível conectar ao Manager Auth em {MANAGER_IP}.")
-        return None
-    except requests.exceptions.Timeout:
-        print(f"[AGENTE] FALHA no registro. Tempo de conexão esgotado (Timeout).")
-        return None
+        return False
     except Exception as e:
         print(f"[AGENTE] Erro inesperado no registro: {e}")
-        return None
+        return False
+
 
 def get_or_register_key():
-    if os.path.exists(KEY_FILE):
-        with open(KEY_FILE, 'r') as f:
-            key = f.read().strip()
-            if key:
-                print(f"[AGENTE] Chave carregada do arquivo: {key[:8]}...")
-                return key
-    
-    # Se o arquivo não existe ou está vazio, registra novamente
-    return register_agent()
+    """Obtém a chave do registro ou gera uma nova"""
+    key = carregar_chave_global()
+    if not key:
+        key = gerar_chave_local()
+        register_agent(key)
+    else:
+        print("[AGENTE] Chave existente detectada, validando com Manager...")
+        register_agent(key)
+    return key
+
 
 def send_heartbeat(key):
     if not key:
         print("[AGENTE] Não é possível enviar heartbeat: Chave ausente.")
-        return True # Retorna True para tentar registrar novamente no loop principal
+        return True
 
     headers = {"Authorization": f"Bearer {key}"}
     payload = {"hostname": AGENT_HOSTNAME, "status": "online", "group": AGENT_GROUP}
 
     try:
         response = requests.post(MANAGER_API_URL, json=payload, headers=headers, timeout=10)
-
         if response.status_code == 401:
-            # 401 Unauthorized - A chave é inválida
-            print("[AGENTE] ERRO: O Manager rejeitou nossa chave (401).")
-            if os.path.exists(KEY_FILE):
-                os.remove(KEY_FILE) # Remove a chave inválida
-            return True # Retorna True para forçar novo registro
+            print("[AGENTE] ERRO: O Manager rejeitou a chave (401). Limpando registro.")
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, REG_PATH, 0, winreg.KEY_SET_VALUE) as reg_key:
+                    winreg.DeleteValue(reg_key, REG_VALUE_NAME)
+            except Exception as e:
+                print(f"[AGENTE] Falha ao remover chave: {e}")
+            return True
 
         if response.status_code == 200:
             data = response.json()
             command = data.get('command')
-
             if command == 'shutdown':
-                print("[AGENTE] Comando 'shutdown' recebido do Manager!")
-                msg = f"O computador será desligado em {int(SHUTDOWN_DELAY / 60)} minutos.\nSalve seu trabalho agora."
+                print("[AGENTE] Comando 'shutdown' recebido!")
+                msg = f"O computador será desligado em {int(SHUTDOWN_DELAY / 60)} minutos."
                 exibir_mensagem_tela(msg, "Desligamento Remoto")
-                
-                # O comando 'shutdown' usa segundos
-                os.system(f'shutdown /s /t {SHUTDOWN_DELAY} /c \"Desligamento remoto iniciado pelo Manager. Salve seu trabalho.\"')
-                
-                # Se vai desligar, podemos parar o loop
-                return False # Retorna False para sair do loop while
-
+                os.system(f'shutdown /s /t {SHUTDOWN_DELAY} /c "Desligamento remoto iniciado pelo Manager."')
+                return False
             elif command == 'ok':
-                print(f"[AGENTE] ({AGENT_HOSTNAME} / {AGENT_GROUP}) Heartbeat enviado. Resposta: OK.")
-                return True # Continua rodando
-            
-            else:
-                print(f"[AGENTE] Resposta desconhecida do Manager: {data}")
+                print(f"[AGENTE] ({AGENT_HOSTNAME}) Heartbeat OK.")
                 return True
-
+            else:
+                print(f"[AGENTE] Resposta desconhecida: {data}")
+                return True
         else:
-            print(f"[AGENTE] Erro inesperado do Manager (Status {response.status_code}): {response.text}")
+            print(f"[AGENTE] Erro inesperado ({response.status_code}): {response.text}")
             return True
-
-    except requests.exceptions.ConnectionError:
-        print(f"[AGENTE] FALHA no heartbeat. Não foi possível conectar ao Manager API em {MANAGER_IP}.")
-        return True
-    except requests.exceptions.Timeout:
-        print(f"[AGENTE] FALHA no heartbeat. Tempo de conexão esgotado (Timeout).")
-        return True
     except Exception as e:
-        print(f"[AGENTE] Erro inesperado no heartbeat: {e}")
+        print(f"[AGENTE] Erro no heartbeat: {e}")
         return True
+
 
 if __name__ == '__main__':
-    print(f"--- Iniciando Agente na máquina: {AGENT_HOSTNAME} ---")
-    print(f"--- Grupo de Agente: {AGENT_GROUP} ---")
-    print(f"--- Conectando ao Manager em: {MANAGER_IP}:23456 ---")
+    print(f"--- Iniciando Agente: {AGENT_HOSTNAME} ---")
+    print(f"--- Grupo: {AGENT_GROUP} ---")
+    print(f"--- Manager: {MANAGER_IP}:23456 ---")
 
-    # Adiciona o agente ao inicializar do Windows
-    # Isso pode falhar se não for executado como Admin na primeira vez
-    adicionar_inicio_windows()
-
-    # Obtém ou registra a chave do agente
     current_key = get_or_register_key()
 
-    # Loop principal de heartbeat
     while True:
         if not current_key:
-            print("[AGENTE] Tentando obter a chave novamente...")
+            print("[AGENTE] Tentando obter chave novamente...")
             current_key = get_or_register_key()
-            if not current_key:
-                print(f"[AGENTE] Falha ao obter a chave, tentando em {HEARTBEAT_INTERVAL} segundos...")
-                time.sleep(HEARTBEAT_INTERVAL)
-                continue # Pula para a próxima iteração do loop
-        
-        # Envia o heartbeat
+            time.sleep(HEARTBEAT_INTERVAL)
+            continue
+
         keep_running = send_heartbeat(current_key)
-
         if not keep_running:
-            print("[AGENTE] Comando de parada recebido. Encerrando o agente.")
-            break # Sai do loop while
+            print("[AGENTE] Encerrando agente.")
+            break
 
-        # Se a chave foi rejeitada (401), send_heartbeat terá removido o arquivo
-        # e o 'current_key' precisa ser limpo para forçar o registro
-        if not os.path.exists(KEY_FILE):
-            print("[AGENTE] Chave local apagada (provavelmente 401). Forçando novo registro na próxima iteração.")
-            current_key = None # Força a re-obtenção da chave
-
-        print(f"[AGENTE] Próximo heartbeat em {HEARTBEAT_INTERVAL} segundos...")
         time.sleep(HEARTBEAT_INTERVAL)

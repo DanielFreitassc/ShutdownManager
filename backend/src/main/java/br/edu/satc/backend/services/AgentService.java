@@ -5,6 +5,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.server.ResponseStatusException;
 
 import br.edu.satc.backend.dtos.AgentRegisterRequestDto;
@@ -35,37 +37,37 @@ public class AgentService {
     private final Map<String, String> commandQueue = new ConcurrentHashMap<>();
     private final AgentMapper agentMapper;
 
-    public AgenteRegisterResponseDto registerAgent(AgentRegisterRequestDto agentRegisterRequestDto) {
-        Optional<AgentEntity> existingAgent = agentRepository.findByHostname(agentRegisterRequestDto.hostname());
-
+    public AgenteRegisterResponseDto registerAgent(AgentRegisterRequestDto dto) {
+        // Verifica se já existe um agente com a mesma chave
+        Optional<AgentEntity> existingAgent = agentRepository.findByAgentKey(dto.agentKey());
+        
         if (existingAgent.isPresent()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Agente já cadastrado");
+            AgentEntity agent = existingAgent.get();
+            // Se o agente estiver pendente, só retorna mensagem informando
+            if ("pending".equals(agent.getStatus())) {
+                return agentMapper.toRegisterDto(agent);
+            }
+
+            // Se já aprovado, apenas retorna os dados
+            return agentMapper.toRegisterDto(agent);
         }
 
-        String newKey = UUID.randomUUID().toString();
-        
-        AgentEntity newAgent = agentMapper.toEntity(agentRegisterRequestDto);
-        newAgent.setAgentKey(newKey);
-        newAgent.setStatus("new");
+        // Cria um novo registro pendente
+        AgentEntity newAgent = new AgentEntity();
+        newAgent.setHostname(dto.hostname());
+        newAgent.setAgentGroup(dto.group());
+        newAgent.setAgentKey(dto.agentKey());
+        newAgent.setStatus("pending"); // ⚠️ pendente até admin aprovar
+        newAgent.setLastHeartbeat(LocalDateTime.now());
 
         agentRepository.save(newAgent);
 
         return agentMapper.toRegisterDto(newAgent);
     }
 
-    public HeartbeatResponseDto processHeartbeat(String agentKey, HeartbeatRequestDto dto) {
-        AgentEntity agent = validateAgentByKey(agentKey, dto.status(), dto.group());
-    
-        String command = getAndClearCommand(agent.getHostname());
-        
-        if (command != null) {
-            return new HeartbeatResponseDto(command); 
-        } else {
-            return new HeartbeatResponseDto("ok"); 
-        }
-    }
 
-    private AgentEntity validateAgentByKey(String agentKey, String status, String group) {
+
+    public HeartbeatResponseDto processHeartbeat(String agentKey, HeartbeatRequestDto dto) {
         Optional<AgentEntity> agentOpt = agentRepository.findByAgentKey(agentKey);
         
         if (agentOpt.isEmpty()) {
@@ -73,16 +75,23 @@ public class AgentService {
         }
 
         AgentEntity agent = agentOpt.get();
-        agent.setStatus(status);
-        agent.setLastHeartbeat(LocalDateTime.now());
-        
-        if (group != null && !group.equals(agent.getAgentGroup())) {
-            agent.setAgentGroup(group); 
+
+        // ⚠️ Bloqueia se não aprovado
+        if (!"approved".equals(agent.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Agente pendente ou não aprovado");
         }
-        
+
+        agent.setStatus(dto.status());
+        agent.setLastHeartbeat(LocalDateTime.now());
+        if (dto.group() != null && !dto.group().equals(agent.getAgentGroup())) {
+            agent.setAgentGroup(dto.group());
+        }
         agentRepository.save(agent);
-        return agent; 
+
+        String command = getAndClearCommand(agent.getHostname());
+        return new HeartbeatResponseDto(command != null ? command : "ok");
     }
+
 
     public MessageResponseDto queueCommandForHost(CommandHostUniqueRequestDto dto) {
         String hostname = dto.hostname();
@@ -141,6 +150,22 @@ public class AgentService {
     public MessageResponseDto deleteByHostId(Long id) {
         agentRepository.delete(findByHostOrThrow(id));
         return new MessageResponseDto("Agente removido com sucesso");
+    }
+
+    public MessageResponseDto approveAgent(Long id) {
+        AgentEntity agent = findByHostOrThrow(id);
+
+        if ("approved".equalsIgnoreCase(agent.getStatus())) {
+            return new MessageResponseDto("Agente já está aprovado.");
+        }
+
+        agent.setStatus("approved");
+        agentRepository.save(agent);
+        return new MessageResponseDto("Agente aprovado com sucesso!");
+    }
+
+    public List<AgentResponseDto> getPendingAgents() {
+        return agentRepository.findByStatus("pending").stream().map(agentMapper::toDto).toList();
     }
 
     @Scheduled(fixedRate = 60000)

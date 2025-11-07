@@ -12,6 +12,7 @@ import br.edu.satc.backend.dtos.HeartbeatResponseDto;
 import br.edu.satc.backend.dtos.MessageResponseDto;
 import br.edu.satc.backend.dtos.ScheduleCommandDto;
 import br.edu.satc.backend.dtos.ScheduledCommandResponseDto;
+import br.edu.satc.backend.models.AgentEntity;
 import br.edu.satc.backend.services.AgentService;
 import br.edu.satc.backend.services.ScheduledCommandService;
 import jakarta.validation.Valid;
@@ -99,4 +100,14 @@ public class ManagerController {
         return agentService.findAgentByHost(id);
     }
 
+    
+    @PatchMapping("/admin/agents/{id}/approve")
+    public MessageResponseDto approveAgent(@PathVariable Long id) {
+       return agentService.approveAgent(id);
+    }
+
+    @GetMapping("/admin/agents/pending")
+    public List<AgentResponseDto> getPendingAgents() {
+        return agentService.getPendingAgents();
+    }
 }

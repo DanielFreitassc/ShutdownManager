@@ -22,4 +22,6 @@ public interface AgentRepository extends JpaRepository<AgentEntity, Long> {
     Page<AgentEntity> findAll(Pageable pageable);
 
     List<AgentEntity> findByStatusNotAndLastHeartbeatBefore(String status, LocalDateTime timestamp);
+
+    List<AgentEntity> findByStatus(String status);
 }
